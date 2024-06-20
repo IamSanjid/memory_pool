@@ -12,7 +12,7 @@ sudo perf stat -d build/perf2
 ```
 
 # Results
-
+For 100000 iterations: 
 ```
 Run on (4 X 2700 MHz CPU s)
 CPU Caches:
@@ -49,46 +49,46 @@ BM_ManualMalloc/iterations:100000_cv           2.15 %          1.89 %           
 
 * Perf1(MemoryPool)
 ``` 
- Performance counter stats for 'build/perf1':
+Performance counter stats for './build/perf1':
 
-            124.15 msec task-clock                       #    0.995 CPUs utilized          
-                 4      context-switches                 #   32.220 /sec                   
-                 0      cpu-migrations                   #    0.000 /sec                   
-            23,656      page-faults                      #  190.547 K/sec                  
-       325,934,217      cycles                           #    2.625 GHz                      (48.42%)
-       475,050,346      instructions                     #    1.46  insn per cycle           (61.34%)
-        94,406,745      branches                         #  760.436 M/sec                    (61.43%)
-           247,020      branch-misses                    #    0.26% of all branches          (61.41%)
-       130,411,762      L1-dcache-loads                  #    1.050 G/sec                    (54.79%)
-         4,402,810      L1-dcache-load-misses            #    3.38% of all L1-dcache accesses  (25.72%)
-           874,413      LLC-loads                        #    7.043 M/sec                    (25.66%)
-           522,444      LLC-load-misses                  #   59.75% of all LL-cache accesses  (36.11%)
+            167.29 msec task-clock                       #    0.992 CPUs utilized          
+                31      context-switches                 #  185.305 /sec                   
+                 1      cpu-migrations                   #    5.978 /sec                   
+            23,674      page-faults                      #  141.513 K/sec                  
+       437,442,076      cycles                           #    2.615 GHz                      (52.40%)
+       650,342,913      instructions                     #    1.49  insn per cycle           (64.29%)
+       130,691,455      branches                         #  781.220 M/sec                    (64.36%)
+           241,964      branch-misses                    #    0.19% of all branches          (61.92%)
+       213,312,313      L1-dcache-loads                  #    1.275 G/sec                    (54.69%)
+         4,302,574      L1-dcache-load-misses            #    2.02% of all L1-dcache accesses  (23.81%)
+           864,087      LLC-loads                        #    5.165 M/sec                    (26.15%)
+           404,700      LLC-load-misses                  #   46.84% of all LL-cache accesses  (38.54%)
 
-       0.124822105 seconds time elapsed
+       0.168580286 seconds time elapsed
 
-       0.056332000 seconds user
-       0.068403000 seconds sys <--- Investigation why it spends so much time there
+       0.129973000 seconds user
+       0.037734000 seconds sys <-- Need some explanantion why this happens
 ```
 
 * Perf2(ManualMalloc)
 ```
- Performance counter stats for 'build/perf2':
+Performance counter stats for './build/perf2':
 
-             68.59 msec task-clock                       #    0.989 CPUs utilized          
-                15      context-switches                 #  218.676 /sec                   
+             68.26 msec task-clock                       #    0.990 CPUs utilized          
+                13      context-switches                 #  190.449 /sec                   
                  0      cpu-migrations                   #    0.000 /sec                   
-               112      page-faults                      #    1.633 K/sec                  
-       176,747,590      cycles                           #    2.577 GHz                      (51.10%)
-       468,313,534      instructions                     #    2.65  insn per cycle           (65.16%)
-       114,365,419      branches                         #    1.667 G/sec                    (65.21%)
-           452,155      branch-misses                    #    0.40% of all branches          (65.15%)
-       128,500,900      L1-dcache-loads                  #    1.873 G/sec                    (48.81%)
-            18,287      L1-dcache-load-misses            #    0.01% of all L1-dcache accesses  (23.19%)
-             4,573      LLC-loads                        #   66.667 K/sec                    (23.22%)
-                42      LLC-load-misses                  #    0.92% of all LL-cache accesses  (34.90%)
+               119      page-faults                      #    1.743 K/sec                  
+       178,477,208      cycles                           #    2.615 GHz                      (51.60%)
+       474,375,593      instructions                     #    2.66  insn per cycle           (65.05%)
+       115,416,411      branches                         #    1.691 G/sec                    (64.99%)
+           388,056      branch-misses                    #    0.34% of all branches          (64.99%)
+       130,574,835      L1-dcache-loads                  #    1.913 G/sec                    (48.44%)
+            36,160      L1-dcache-load-misses            #    0.03% of all L1-dcache accesses  (23.32%)
+             5,804      LLC-loads                        #   85.028 K/sec                    (23.39%)
+               768      LLC-load-misses                  #   13.23% of all LL-cache accesses  (35.02%)
 
-       0.069380629 seconds time elapsed
+       0.068937789 seconds time elapsed
 
-       0.069220000 seconds user
+       0.068823000 seconds user
        0.000000000 seconds sys
 ```
