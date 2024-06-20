@@ -12,6 +12,8 @@ sudo perf stat -d build/perf2
 ```
 
 # Results
+
+```
 Run on (4 X 2700 MHz CPU s)
 CPU Caches:
   L1 Data 32 KiB (x2)
@@ -41,6 +43,7 @@ BM_ManualMalloc/iterations:100000_mean        0.007 ms        0.007 ms          
 BM_ManualMalloc/iterations:100000_median      0.007 ms        0.007 ms            5
 BM_ManualMalloc/iterations:100000_stddev      0.000 ms        0.000 ms            5
 BM_ManualMalloc/iterations:100000_cv           2.15 %          1.89 %             5
+```
 
 # Perf
 
