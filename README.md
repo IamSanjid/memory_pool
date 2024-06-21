@@ -24,3 +24,6 @@ mallocs, so, faster memory access?
 might retain and the new allocated object memory might still contain those but
 again if we deallocate through `PoolManager::Delete` the object's destructor is
 called which might clean it up.
+
+# Logic Error
+[This Line](https://github.com/IamSanjid/memory_pool/blob/logic-error/memory_pool.h#L181) had a silly but huge logic error. Say [`pools_`](https://github.com/IamSanjid/memory_pool/blob/logic-error/memory_pool.h#L102) has two pools their ids/indecies are `0,1`. First an object from the 0th/`pools_[0]` gets destroyed, so [`current_pool_id_`](https://github.com/IamSanjid/memory_pool/blob/logic-error/memory_pool.h#L103) becoms 0. Now think of a scenerio this 0th pool has few free blocks but then an object from the 1th/`pools_[1]` gets destroyed so `current_pool_id_` becomes `1`, but there is nothing which is keeping track that 0th pool has some free blocks, so when this 1th pool gets out of space nothing goes back and uses previously allocated 0th pool's space, so it almost becomes a huge memory leak.
