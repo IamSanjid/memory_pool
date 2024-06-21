@@ -119,12 +119,12 @@ public:
 
   // Adds a new pool with specific number of **blocks**.
   size_t AddNewPool(size_t blocks = kDefaultBlockCount) {
-    size_t current_pool_id = pools_.size();
+    size_t pool_id = pools_.size();
     FixedPool *pool =
-        FixedPool::Create(current_pool_id, (uintptr_t)this, sizeof(T), blocks);
+        FixedPool::Create(pool_id, (uintptr_t)this, sizeof(T), blocks);
 
-    pools_.emplace_back(pool, current_pool_id + 1);
-    return current_pool_id;
+    pools_.emplace_back(pool, pool_id + 1);
+    return pool_id;
   }
 
   // Returns the active pool which has free block(s) or adds/creates a new pool
@@ -143,8 +143,9 @@ public:
     }
 
     current_pool_id_ = active_pool.next_pool_id;
-    if (current_pool_id_ == pools_.size())
+    if (current_pool_id_ == pools_.size()) {
       (void)AddNewPool();
+    }
 
     return pools_[current_pool_id_];
   }
@@ -178,7 +179,7 @@ public:
     instance->~T();
     pool->ForcedDeAllocate((void *)instance);
 
-    current_pool_id_ = pool_id;
+    SetNextFreePool(pool_id);
   }
 
   // Shouldn't be called in a busy loop.
@@ -205,6 +206,19 @@ private:
     }
 
     delete thiz;
+  }
+
+  inline void SetNextFreePool(size_t pool_id) {
+    if (pool_id == current_pool_id_)
+      return;
+    // We're basically swapping around...
+    InnerFixedPoolInfo &pool_info = pools_[pool_id];
+    InnerFixedPoolInfo &current_pool_info = pools_[current_pool_id_];
+
+    current_pool_info.next_pool_id = pool_info.next_pool_id;
+    pool_info.next_pool_id = current_pool_id_;
+
+    current_pool_id_ = pool_id;
   }
 
   inline void DeAllocateUsedBlocks(const InnerFixedPoolInfo &pool) {
@@ -246,7 +260,7 @@ private:
         // has requested deallocating/deleting this object.
         pool->ForcedDeAllocate((void *)instance);
 
-        current_pool_id_ = pool_id;
+        SetNextFreePool(pool_id);
       }
     } while (count > 0);
   }

@@ -1,7 +1,7 @@
 #include "bench_common.h"
 #include "memory_pool.h"
 
-constexpr size_t kBenchmarkIterations = 10000;
+constexpr size_t kBenchmarkIterations = 100000;
 
 static void MemoryPool(bool recreating = false) {
   std::vector<MyObj *> objs;

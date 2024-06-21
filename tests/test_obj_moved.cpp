@@ -68,6 +68,6 @@ int main() {
     defer_return(1);
 
 defer:
-  GlobalPoolManager::GetInstance()->DestroyAll();
+  GlobalPoolManager::DestroyAll();
   return result;
 }
