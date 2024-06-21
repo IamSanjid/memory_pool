@@ -281,10 +281,11 @@ int main(int argc, char **argv) {
   if (test_pool_manager7() != 0)
     defer_return(1);
 
+  printf("\nAll %d Tests passed\n", test_count);
 defer:
   GlobalPoolManager::DestroyAll();
-
-  std::cout << "\nExecuted " << test_count
-            << " tests, deallocated all the allocated spaces automatically\n";
+  if (result != 0) {
+    printf("\n%d Tests passed, some other test failed\n", test_count - 1);
+  }
   return result;
 }
