@@ -3,8 +3,6 @@
 
 #include "memory_pool.h"
 
-constexpr size_t kDefaultPoolId = std::numeric_limits<size_t>::max();
-
 static inline bool IsAligned(size_t val, size_t alignment) {
   size_t lowBits = val & (alignment - 1);
   return (lowBits == 0);
@@ -20,22 +18,26 @@ static inline size_t Align(size_t val, size_t alignment) {
 
 FixedPool *FixedPool::Create(size_t size_of_each_block,
                              uint32_t num_of_blocks) {
-  return Create(kDefaultPoolId, 0, size_of_each_block, num_of_blocks);
-}
-
-FixedPool *FixedPool::Create(size_t id, uintptr_t owner,
-                             size_t size_of_each_block,
-                             uint32_t num_of_blocks) {
-  FixedPool *instance = new FixedPool(id, owner);
+  FixedPool *instance = new FixedPool();
   instance->CreatePool(size_of_each_block, num_of_blocks);
 
   return instance;
 }
 
-FixedPool::FixedPool(size_t id, uintptr_t owner_identfier)
+FixedPool *FixedPool::Create(uintptr_t id, size_t size_of_each_block,
+                             uint32_t num_of_blocks) {
+  FixedPool *instance = new FixedPool(id);
+  instance->CreatePool(size_of_each_block, num_of_blocks);
+
+  return instance;
+}
+
+FixedPool::FixedPool() : FixedPool((uintptr_t)this) {}
+
+FixedPool::FixedPool(uintptr_t id)
     : num_of_blocks_(0), size_of_each_block_(0), num_free_blocks_(0),
-      num_initialized_(0), pad_before_header_(0), mem_start_(nullptr), next_(0),
-      id_(id), owner_identifier_(owner_identfier) {}
+      num_initialized_(0), pad_before_header_(0), mem_start_(nullptr),
+      next_(nullptr), id_(id) {}
 
 FixedPool::~FixedPool() { DestroyPool(); }
 
@@ -64,7 +66,7 @@ void *FixedPool::ForcedAllocate() {
   if (num_initialized_ < num_of_blocks_) {
     Header *h = (Header *)AddrFromIndex(num_initialized_);
     h->next_block_idx = num_initialized_ + 1;
-    h->pool_identifier = (uintptr_t)this;
+    h->pool_identifier = id_;
     num_initialized_++;
   }
   void *ret = ToData(next_);
@@ -107,7 +109,7 @@ void FixedPool::ForcedDeAllocate(void *p) {
 
 void FixedPool::DeAllocate(void *p) {
   Header *h = ReadHeader(p);
-  if (h->pool_identifier != (uintptr_t)this)
+  if (h->pool_identifier != id_)
     return;
 
   ForcedDeAllocate(p);

@@ -77,7 +77,8 @@ int test2() {
 
   std::vector<MyObj *> objs;
   for (size_t i = 0; i < kDefaultBlockCount * 3; i++) {
-    objs.push_back(pool::New<MyObj>("TmpChild", i));
+    MyObj *obj = pool::New<MyObj>("TmpChild", i);
+    objs.push_back(obj);
   }
 
   std::cout << "\n Destroying from 0th pool \n";
@@ -86,15 +87,25 @@ int test2() {
   std::cout << "\n Destroying from 3rd pool \n";
   pool::Delete(objs[(kDefaultBlockCount * 3) - 1]);
 
+  std::cout << "\n Destroying from 2nd pool \n";
+  pool::Delete(objs[(kDefaultBlockCount * 2) - 1]);
+
   std::cout << "\n Adding to 3rd pool \n";
   auto c_3rd = pool::New<MyObj>("NewChildTo3rd", 0);
   c_3rd->Print();
+
+  std::cout << "\n Adding to 2nd pool \n";
+  auto c_2nd = pool::New<MyObj>("NewChildTo2nd", 0);
+  c_2nd->Print();
 
   std::cout << "\n Adding to 0th pool \n";
   auto c_0th = pool::New<MyObj>("NewChildTo0th", 0);
   c_0th->Print();
 
-  bool is_0th_pool_reused = (uintptr_t)objs[kDefaultBlockCount - 1] == (uintptr_t)c_0th;
+  bool is_0th_pool_reused =
+      (uintptr_t)objs[kDefaultBlockCount - 1] == (uintptr_t)c_0th ||
+      (uintptr_t)objs[kDefaultBlockCount - 1] == (uintptr_t)c_2nd ||
+      (uintptr_t)objs[kDefaultBlockCount - 1] == (uintptr_t)c_3rd;
   return is_0th_pool_reused ? 0 : 1;
 }
 

@@ -1,6 +1,7 @@
 #ifndef __MEMORY_POOL_H__
 #define __MEMORY_POOL_H__
 
+#include <forward_list>
 #include <limits>
 #include <memory>
 #include <thread>
@@ -44,7 +45,8 @@ private:
     return h;
   }
 
-  FixedPool(size_t id, uintptr_t owner_identifier);
+  FixedPool();
+  FixedPool(uintptr_t id);
   void CreatePool(size_t size_of_each_block, uint32_t num_of_blocks);
   void DestroyPool();
   void *ForcedAllocate();
@@ -58,19 +60,17 @@ private:
   uint32_t pad_before_header_; // Extra bytes allocated for alignment
   uchar *mem_start_;           // Beginning of memory pool
   uchar *next_;                // Num of next free block
-  size_t id_;                  // Assigned id
-  uintptr_t owner_identifier_; // Owner identifier
+  uintptr_t id_;               // Assigned id
   bool *used_blocks_;          // Used blocks
 
 public:
   static FixedPool *Create(size_t size_of_each_block, uint32_t num_of_blocks);
-  static FixedPool *Create(size_t id, uintptr_t owner,
-                           size_t size_of_each_block, uint32_t num_of_blocks);
-  static inline FixedPool *GetPoolFromData(void *p) {
-    return (FixedPool *)ReadHeader(p)->pool_identifier;
+  static FixedPool *Create(uintptr_t id, size_t size_of_each_block,
+                           uint32_t num_of_blocks);
+  static inline uintptr_t GetPoolIdentifierFromData(void *p) {
+    return ReadHeader(p)->pool_identifier;
   }
 
-  FixedPool() = delete;
   ~FixedPool();
 
   void *Allocate();
@@ -78,8 +78,7 @@ public:
   void ReclaimAll();
 
   uint32_t GetNumOfBlocks() const { return num_of_blocks_; }
-  size_t GetId() const { return id_; }
-  size_t GetOwnerIdentfier() const { return owner_identifier_; }
+  uintptr_t GetId() const { return id_; }
   inline void *ToData(uchar *p) {
     return (void *)((size_t)(p) + sizeof(Header));
   }
@@ -91,16 +90,21 @@ public:
 };
 
 template <typename T> class PoolManager {
-  struct InnerFixedPoolInfo {
+  struct InnerFixedPool {
     FixedPool *pool_instance;
-    size_t next_pool_id;
+    size_t id;
+    uintptr_t owner_identifier;
+
+    ~InnerFixedPool() { delete pool_instance; }
   };
   friend class GlobalPoolManager;
 
 private:
   inline static thread_local PoolManager *shared_instance_ = nullptr;
-  std::vector<InnerFixedPoolInfo> pools_;
-  size_t current_pool_id_;
+  std::vector<InnerFixedPool *> pools_;
+  // specialized for space...
+  std::vector<bool> empty_pools_;
+  std::forward_list<size_t> free_pools_;
 
   // Lock-free thread-safe queue
   moodycamel::ConcurrentQueue<T *> dealloc_req_queue_;
@@ -120,40 +124,54 @@ public:
   // Adds a new pool with specific number of **blocks**.
   size_t AddNewPool(size_t blocks = kDefaultBlockCount) {
     size_t pool_id = pools_.size();
-    FixedPool *pool =
-        FixedPool::Create(pool_id, (uintptr_t)this, sizeof(T), blocks);
 
-    pools_.emplace_back(pool, pool_id + 1);
+    empty_pools_.emplace_back(true);
+
+    // emplace_back returns reference since c++17
+    InnerFixedPool *inner_pool = new InnerFixedPool();
+    inner_pool->id = pool_id;
+    inner_pool->owner_identifier = (uintptr_t)this;
+    inner_pool->pool_instance =
+        FixedPool::Create((uintptr_t)inner_pool, sizeof(T), blocks);
+
+    pools_.push_back(inner_pool);
+    free_pools_.push_front(pool_id);
     return pool_id;
   }
 
   // Returns the active pool which has free block(s) or adds/creates a new pool
   // and returns it.
-  InnerFixedPoolInfo &GetActivePool() {
-    InnerFixedPoolInfo &active_pool = pools_[current_pool_id_];
-    if (active_pool.pool_instance->IsAnyBlockAvailable()) {
+  FixedPool *GetActivePool() {
+    size_t current_pool_id = free_pools_.front();
+    FixedPool *active_pool = pools_[current_pool_id]->pool_instance;
+    if (active_pool->IsAnyBlockAvailable()) {
       return active_pool;
     } else {
       // We should do synchronization overhead stuff only when we really need
       // it.
       ConsumeDeallocRequests();
-      if (active_pool.pool_instance->IsAnyBlockAvailable()) {
+      if (active_pool->IsAnyBlockAvailable()) {
         return active_pool;
       }
+      free_pools_.pop_front();
+      empty_pools_[current_pool_id] = false;
     }
 
-    current_pool_id_ = active_pool.next_pool_id;
-    if (current_pool_id_ == pools_.size()) {
-      (void)AddNewPool();
+    if (!free_pools_.empty()) {
+      current_pool_id = free_pools_.front();
+
+      active_pool = pools_[current_pool_id]->pool_instance;
+      return active_pool;
     }
 
-    return pools_[current_pool_id_];
+    current_pool_id = AddNewPool();
+    return pools_[current_pool_id]->pool_instance;
   }
 
   template <typename... Args> T *New(Args &&...args) {
-    InnerFixedPoolInfo &pool = GetActivePool();
+    FixedPool *pool = GetActivePool();
 
-    void *space = pool.pool_instance->ForcedAllocate();
+    void *space = pool->ForcedAllocate();
     return new (space) T(std::forward<Args>(args)...);
   }
 
@@ -162,33 +180,40 @@ public:
   // Safety: The object `instance` must've been created using the
   // `PoolManager::New` function.
   void Delete(T *instance) {
-    FixedPool *pool = FixedPool::GetPoolFromData((void *)instance);
-    PoolManager<T> *pool_owner = (PoolManager<T> *)pool->GetOwnerIdentfier();
+    InnerFixedPool *inner_pool =
+        (InnerFixedPool *)FixedPool::GetPoolIdentifierFromData(
+            (void *)instance);
+    PoolManager<T> *pool_owner = (PoolManager<T> *)inner_pool->owner_identifier;
     // Since `shared_instance_` is marked as `thread_local` we're stating our
     // intention that we're basically checking if a moved object to a different
     // thread has requested to deallocate some space.
     if (shared_instance_ != pool_owner) {
       // Calling the destructor before actually deallocating the reserved
-      // memory.
+      // memory. So the current thread can act as if the object has been freed.
       instance->~T();
       pool_owner->AddDeallocRequest(instance);
       return;
     }
-    size_t pool_id = pool->GetId();
+
     // calling destructor
     instance->~T();
-    pool->ForcedDeAllocate((void *)instance);
+    inner_pool->pool_instance->ForcedDeAllocate((void *)instance);
 
-    SetNextFreePool(pool_id);
+    SetNextFreePool(inner_pool->id);
   }
 
   // Shouldn't be called in a busy loop.
   void Clear() {
-    for (auto &pool : pools_) {
-      DeAllocateUsedBlocks(pool);
-      pool.pool_instance->ReclaimAll();
+    for (size_t i = pools_.size() - 1; i >= 0; i--) {
+      auto &pool = pools_[i];
+
+      DeAllocateUsedBlocks(pool->pool_instance);
+      pool->pool_instance->ReclaimAll();
+      if (!empty_pools_[i]) {
+        empty_pools_[i] = true;
+        free_pools_.push_front(i);
+      }
     }
-    current_pool_id_ = 0;
   }
 
 private:
@@ -197,31 +222,26 @@ private:
   //
   // Safety: Since Main thread will call it implcitly while exiting, no other
   // thread should hold any of the `PoolManager` instances.
-  static void DestroyManager(void *ptr) {
+  static void Destroy(void *ptr) {
     PoolManager<T> *thiz = (PoolManager<T> *)ptr;
 
     for (auto &pool : thiz->pools_) {
-      thiz->DeAllocateUsedBlocks(pool);
-      delete pool.pool_instance;
+      thiz->DeAllocateUsedBlocks(pool->pool_instance);
+      delete pool;
     }
 
     delete thiz;
   }
 
   inline void SetNextFreePool(size_t pool_id) {
-    if (pool_id == current_pool_id_)
+    if (empty_pools_[pool_id])
       return;
-    // We're basically swapping around...
-    InnerFixedPoolInfo &pool_info = pools_[pool_id];
-    InnerFixedPoolInfo &current_pool_info = pools_[current_pool_id_];
 
-    current_pool_info.next_pool_id = pool_info.next_pool_id;
-    pool_info.next_pool_id = current_pool_id_;
-
-    current_pool_id_ = pool_id;
+    free_pools_.push_front(pool_id);
+    empty_pools_[pool_id] = true;
   }
 
-  inline void DeAllocateUsedBlocks(const InnerFixedPoolInfo &pool) {
+  inline void DeAllocateUsedBlocks(FixedPool *pool) {
     // Since everything is being "reclaimed" why not just do some thread
     // syncronization and reclaim spaces moved to another thread.
     //
@@ -229,15 +249,14 @@ private:
     // loop.
     ConsumeDeallocRequests();
 
-    FixedPool *pool_instance = pool.pool_instance;
-    for (size_t i = 0, blocks_count = pool_instance->GetNumOfBlocks();
-         i < blocks_count; i++) {
-      if (!pool_instance->IsBlockUsed(i))
+    for (size_t i = 0, blocks_count = pool->GetNumOfBlocks(); i < blocks_count;
+         i++) {
+      if (!pool->IsBlockUsed(i))
         continue;
-      T *instance = (T *)pool_instance->ToData(pool_instance->AddrFromIndex(i));
+      T *instance = (T *)pool->ToData(pool->AddrFromIndex(i));
       instance->~T();
 
-      pool_instance->ForcedDeAllocate((void *)instance);
+      pool->ForcedDeAllocate((void *)instance);
     }
   }
 
@@ -251,8 +270,10 @@ private:
                                                   kStackConsumeItems);
       for (size_t i = 0; i < count; i++) {
         T *instance = items[i];
-        FixedPool *pool = FixedPool::GetPoolFromData((void *)instance);
-        size_t pool_id = pool->GetId();
+        InnerFixedPool *inner_pool =
+            (InnerFixedPool *)FixedPool::GetPoolIdentifierFromData(
+                (void *)instance);
+        FixedPool *pool = inner_pool->pool_instance;
         // We're not calling the destructor, we've already called it. We're just
         // now reclaiming the reserved space as we need it.
         //
@@ -260,7 +281,7 @@ private:
         // has requested deallocating/deleting this object.
         pool->ForcedDeAllocate((void *)instance);
 
-        SetNextFreePool(pool_id);
+        SetNextFreePool(inner_pool->id);
       }
     } while (count > 0);
   }
@@ -330,18 +351,17 @@ public:
   // Registers a `PoolManager<T>` instance to it's *queue*.
   //
   // When `GlobalPoolManager::DestroyAll` is called
-  // `PoolManager<T>::DestroyManager` will be called and it's first argument
+  // `PoolManager<T>::Destroy` will be called and it's first argument
   // will be the *instance*.
   template <typename T> void RegisterPoolManager(PoolManager<T> *instance) {
     pool_mgr_queue_.enqueue(
-        PoolManagerContext{(void *)instance, PoolManager<T>::DestroyManager});
+        PoolManagerContext{(void *)instance, PoolManager<T>::Destroy});
   }
 };
 
 // `GlobalPoolManager` needs to be accessed by the PoolManager
 template <class T>
-PoolManager<T>::PoolManager()
-    : current_pool_id_(0), consumer_token_(dealloc_req_queue_) {
+PoolManager<T>::PoolManager() : consumer_token_(dealloc_req_queue_) {
   // Add a single pool first which will have 64 blocks.
   AddNewPool();
   GlobalPoolManager::GetInstance()->RegisterPoolManager(this);
