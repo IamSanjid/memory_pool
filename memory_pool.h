@@ -102,8 +102,6 @@ template <typename T> class PoolManager {
 private:
   inline static thread_local PoolManager *shared_instance_ = nullptr;
   std::vector<InnerFixedPool *> pools_;
-  // specialized for space...
-  std::vector<bool> empty_pools_;
   std::forward_list<size_t> free_pools_;
 
   // Lock-free thread-safe queue
@@ -125,9 +123,6 @@ public:
   size_t AddNewPool(size_t blocks = kDefaultBlockCount) {
     size_t pool_id = pools_.size();
 
-    empty_pools_.emplace_back(true);
-
-    // emplace_back returns reference since c++17
     InnerFixedPool *inner_pool = new InnerFixedPool();
     inner_pool->id = pool_id;
     inner_pool->owner_identifier = (uintptr_t)this;
@@ -154,7 +149,6 @@ public:
         return active_pool;
       }
       free_pools_.pop_front();
-      empty_pools_[current_pool_id] = false;
     }
 
     if (!free_pools_.empty()) {
@@ -194,25 +188,23 @@ public:
       pool_owner->AddDeallocRequest(instance);
       return;
     }
+    SetNextFreePool(inner_pool->id);
 
     // calling destructor
     instance->~T();
     inner_pool->pool_instance->ForcedDeAllocate((void *)instance);
-
-    SetNextFreePool(inner_pool->id);
   }
 
   // Shouldn't be called in a busy loop.
   void Clear() {
     for (size_t i = pools_.size() - 1; i >= 0; i--) {
       auto &pool = pools_[i];
+      if (!pool->pool_instance->IsAnyBlockAvailable()) {
+        free_pools_.push_front(i);
+      }
 
       DeAllocateUsedBlocks(pool->pool_instance);
       pool->pool_instance->ReclaimAll();
-      if (!empty_pools_[i]) {
-        empty_pools_[i] = true;
-        free_pools_.push_front(i);
-      }
     }
   }
 
@@ -233,12 +225,13 @@ private:
     delete thiz;
   }
 
+  // Must be called before `FixedPool::ForcedDeAllocate` gets called. Since
+  // we're kind of checking if it was in the "freed" pools list.
   inline void SetNextFreePool(size_t pool_id) {
-    if (empty_pools_[pool_id])
+    if (pools_[pool_id]->pool_instance->IsAnyBlockAvailable())
       return;
 
     free_pools_.push_front(pool_id);
-    empty_pools_[pool_id] = true;
   }
 
   inline void DeAllocateUsedBlocks(FixedPool *pool) {
@@ -274,14 +267,14 @@ private:
             (InnerFixedPool *)FixedPool::GetPoolIdentifierFromData(
                 (void *)instance);
         FixedPool *pool = inner_pool->pool_instance;
+
+        SetNextFreePool(inner_pool->id);
         // We're not calling the destructor, we've already called it. We're just
         // now reclaiming the reserved space as we need it.
         //
         // Safety: The object should've been moved to the *other* thread which
         // has requested deallocating/deleting this object.
         pool->ForcedDeAllocate((void *)instance);
-
-        SetNextFreePool(inner_pool->id);
       }
     } while (count > 0);
   }
