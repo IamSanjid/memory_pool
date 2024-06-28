@@ -2,9 +2,6 @@
 #define __MEMORY_POOL_H__
 
 #include <forward_list>
-#include <limits>
-#include <memory>
-#include <thread>
 #include <vector>
 
 #include "concurrentqueue.h" // lock-free thread-safe queue
@@ -18,14 +15,15 @@ constexpr size_t kDefaultBlockCount = FIXED_POOL_BLOCK_COUNT;
 constexpr size_t kStackConsumeItems = 16;
 
 class FixedPool {
+  template <typename T> friend class PoolState;
+
+private:
   using uchar = unsigned char;
   struct Header {
     uintptr_t pool_identifier;
     uint32_t next_block_idx;
   };
-  template <typename T> friend class PoolManager;
 
-private:
   inline uchar *AddrFromIndex(uint32_t i) const {
     // block = [(padding)(header)(data)]
     // returns &((header)(data))
@@ -61,15 +59,11 @@ private:
   uchar *mem_start_;           // Beginning of memory pool
   uchar *next_;                // Num of next free block
   uintptr_t id_;               // Assigned id
-  bool *used_blocks_;          // Used blocks
 
 public:
   static FixedPool *Create(size_t size_of_each_block, uint32_t num_of_blocks);
   static FixedPool *Create(uintptr_t id, size_t size_of_each_block,
                            uint32_t num_of_blocks);
-  static inline uintptr_t GetPoolIdentifierFromData(void *p) {
-    return ReadHeader(p)->pool_identifier;
-  }
 
   ~FixedPool();
 
@@ -86,21 +80,27 @@ public:
   bool IsAnyBlockUsed() const {
     return (num_of_blocks_ - num_free_blocks_) > 0;
   }
-  bool IsBlockUsed(size_t block_idx) const { return used_blocks_[block_idx]; }
+  bool IsBlockUsed(size_t block_idx) const {
+    return next_ == nullptr ||
+           ((Header *)AddrFromIndex(block_idx))->next_block_idx ==
+               num_of_blocks_ + 1;
+  }
 };
 
-template <typename T> class PoolManager {
+template <typename T> class PoolState {
+private:
   struct InnerFixedPool {
-    FixedPool *pool_instance;
     size_t id;
     uintptr_t owner_identifier;
+    FixedPool *pool_instance;
 
+    InnerFixedPool(size_t t_id, uintptr_t t_owner_identifier, size_t blocks)
+        : id(t_id), owner_identifier(t_owner_identifier),
+          pool_instance(FixedPool::Create((uintptr_t)this, sizeof(T), blocks)) {
+    }
     ~InnerFixedPool() { delete pool_instance; }
   };
-  friend class GlobalPoolManager;
 
-private:
-  inline static thread_local PoolManager *shared_instance_ = nullptr;
   std::vector<InnerFixedPool *> pools_;
   std::forward_list<size_t> free_pools_;
 
@@ -108,27 +108,15 @@ private:
   moodycamel::ConcurrentQueue<T *> dealloc_req_queue_;
   moodycamel::ConsumerToken consumer_token_;
 
-private:
-  PoolManager();
-
 public:
-  static PoolManager *GetInstance() {
-    if (shared_instance_ == nullptr) {
-      shared_instance_ = new PoolManager();
-    }
-    return shared_instance_;
-  }
+  PoolState() : consumer_token_(dealloc_req_queue_) { AddNewPool(); }
+  ~PoolState() { Destroy(); }
 
   // Adds a new pool with specific number of **blocks**.
   size_t AddNewPool(size_t blocks = kDefaultBlockCount) {
     size_t pool_id = pools_.size();
 
-    InnerFixedPool *inner_pool = new InnerFixedPool();
-    inner_pool->id = pool_id;
-    inner_pool->owner_identifier = (uintptr_t)this;
-    inner_pool->pool_instance =
-        FixedPool::Create((uintptr_t)inner_pool, sizeof(T), blocks);
-
+    auto inner_pool = new InnerFixedPool(pool_id, (uintptr_t)this, blocks);
     pools_.push_back(inner_pool);
     free_pools_.push_front(pool_id);
     return pool_id;
@@ -172,16 +160,15 @@ public:
   // Tries to dealloc the given instance and always calls the destructor.
   //
   // Safety: The object `instance` must've been created using the
-  // `PoolManager::New` function.
+  // `PoolState::New` function.
   void Delete(T *instance) {
     InnerFixedPool *inner_pool =
-        (InnerFixedPool *)FixedPool::GetPoolIdentifierFromData(
-            (void *)instance);
-    PoolManager<T> *pool_owner = (PoolManager<T> *)inner_pool->owner_identifier;
-    // Since `shared_instance_` is marked as `thread_local` we're stating our
-    // intention that we're basically checking if a moved object to a different
-    // thread has requested to deallocate some space.
-    if (shared_instance_ != pool_owner) {
+        (InnerFixedPool *)FixedPool::ReadHeader((void *)instance)
+            ->pool_identifier;
+    PoolState<T> *pool_owner = (PoolState<T> *)inner_pool->owner_identifier;
+    // We're stating our intention that we're basically checking if a moved
+    // object to a different thread has requested to deallocate some space.
+    if (this != pool_owner) {
       // Calling the destructor before actually deallocating the reserved
       // memory. So the current thread can act as if the object has been freed.
       instance->~T();
@@ -209,24 +196,15 @@ public:
   }
 
 private:
-  // User should call `GlobalPoolManager::DestroyAll` when the main thread is
-  // exiting.
-  //
-  // Safety: Since Main thread will call it implcitly while exiting, no other
-  // thread should hold any of the `PoolManager` instances.
-  static void Destroy(void *ptr) {
-    PoolManager<T> *thiz = (PoolManager<T> *)ptr;
-
-    for (auto &pool : thiz->pools_) {
-      thiz->DeAllocateUsedBlocks(pool->pool_instance);
+  inline void Destroy() {
+    for (auto &pool : pools_) {
+      DeAllocateUsedBlocks(pool->pool_instance);
       delete pool;
     }
-
-    delete thiz;
   }
 
   // Must be called before `FixedPool::ForcedDeAllocate` gets called. Since
-  // we're kind of checking if it was in the "freed" pools list.
+  // we're kind of checking if it is already in the "free pools" list.
   inline void SetNextFreePool(size_t pool_id) {
     if (pools_[pool_id]->pool_instance->IsAnyBlockAvailable())
       return;
@@ -264,8 +242,8 @@ private:
       for (size_t i = 0; i < count; i++) {
         T *instance = items[i];
         InnerFixedPool *inner_pool =
-            (InnerFixedPool *)FixedPool::GetPoolIdentifierFromData(
-                (void *)instance);
+            (InnerFixedPool *)FixedPool::ReadHeader((void *)instance)
+                ->pool_identifier;
         FixedPool *pool = inner_pool->pool_instance;
 
         SetNextFreePool(inner_pool->id);
@@ -280,93 +258,28 @@ private:
   }
 };
 
-class GlobalPoolManager {
-  struct PoolManagerContext {
-    using DestroyFunc = void (*)(void *thiz);
-
-    void *instance;
-    DestroyFunc destroy_func;
-  };
-
-private:
-  inline static std::shared_ptr<GlobalPoolManager> shared_instance_ = nullptr;
-
-  // Lock-free thread-safe queue
-  moodycamel::ConcurrentQueue<PoolManagerContext> pool_mgr_queue_;
-  moodycamel::ConsumerToken consumer_token_;
-
+class PoolManager {
 public:
-  // Initializes the shared instance of `GlobalPoolManager`.
-  //
-  // Safety: Should be called by the main thread.
-  static void Init() {
-    if (shared_instance_ != nullptr)
-      return;
-    shared_instance_ = std::make_shared<GlobalPoolManager>();
-  }
+  PoolManager(const PoolManager &) = delete;
+  PoolManager(const PoolManager &&) = delete;
+  PoolManager &operator=(const PoolManager &) = delete;
+  PoolManager &operator=(const PoolManager &&) = delete;
 
-  // Returns the shared instance.
-  //
-  // Safety: `GlobalPoolManager::Init` should be called by the main thread
-  // before any other threads starts calling it.
-  static std::shared_ptr<GlobalPoolManager> GetInstance() {
-    return shared_instance_;
-  }
-
-  // Should be called by the Main thread before exiting.
-  // Shouldn't be called in a busy loop.
-  //
-  // Safety: Since it's intended to be called when main thread is exiting, no
-  // other thread should have any reference to it.
-  static void DestroyAll() {
-    std::shared_ptr<GlobalPoolManager> thiz = GetInstance();
-
-    if (thiz == nullptr)
-      return;
-
-    size_t count = 0;
-    do {
-      PoolManagerContext items[kStackConsumeItems];
-      count = thiz->pool_mgr_queue_.try_dequeue_bulk(thiz->consumer_token_,
-                                                     items, kStackConsumeItems);
-      for (size_t i = 0; i < count; i++) {
-        PoolManagerContext &mgr = items[i];
-        mgr.destroy_func(mgr.instance);
-      }
-    } while (count > 0);
-
-    shared_instance_.reset();
-    shared_instance_ = nullptr;
-  }
-
-  GlobalPoolManager() : consumer_token_(pool_mgr_queue_) {}
-
-  // Registers a `PoolManager<T>` instance to it's *queue*.
-  //
-  // When `GlobalPoolManager::DestroyAll` is called
-  // `PoolManager<T>::Destroy` will be called and it's first argument
-  // will be the *instance*.
-  template <typename T> void RegisterPoolManager(PoolManager<T> *instance) {
-    pool_mgr_queue_.enqueue(
-        PoolManagerContext{(void *)instance, PoolManager<T>::Destroy});
+  // `thread_local`'s language implementation guarantees that the destructor
+  // will be called when the thread is exitting...
+  template <typename T, typename... Args> inline static PoolState<T> &Get() {
+    static thread_local PoolState<T> t_pool_state = PoolState<T>();
+    return t_pool_state;
   }
 };
 
-// `GlobalPoolManager` needs to be accessed by the PoolManager
-template <class T>
-PoolManager<T>::PoolManager() : consumer_token_(dealloc_req_queue_) {
-  // Add a single pool first which will have 64 blocks.
-  AddNewPool();
-  GlobalPoolManager::GetInstance()->RegisterPoolManager(this);
-}
-
 namespace pool {
 template <typename T, typename... Args> inline T *New(Args &&...args) {
-  return PoolManager<T>::GetInstance()->New(std::forward<Args>(args)...);
+  return PoolManager::Get<T>().New(std::forward<Args>(args)...);
 }
 
 template <typename T> inline void Delete(T *instance) {
-  PoolManager<T>::GetInstance()->Delete(instance);
+  PoolManager::Get<T>().Delete(instance);
 }
 }; // namespace pool
 

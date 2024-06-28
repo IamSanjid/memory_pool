@@ -8,7 +8,8 @@ static void MemoryPool(bool recreating = false) {
   for (size_t i = 0; i <= kDefaultBlockCount + 5; i++) {
     std::string name = "Child" + std::to_string(i);
     objs.push_back(pool::New<MyObj>(name, i));
-    //printf("%s: %s\n", (recreating ? "Creating" : "Recreating"), name.c_str());
+    // printf("%s: %s\n", (recreating ? "Creating" : "Recreating"),
+    // name.c_str());
   }
 
   for (auto &ptr : objs)
@@ -20,10 +21,8 @@ static void MemoryPool(bool recreating = false) {
 }
 
 int main() {
-  GlobalPoolManager::Init();
-  std::ignore = PoolManager<MyObj>::GetInstance();
+  std::ignore = PoolManager::Get<MyObj>();
   for (size_t i = 0; i < kBenchmarkIterations; i++) {
     MemoryPool();
   }
-  GlobalPoolManager::DestroyAll();
 }

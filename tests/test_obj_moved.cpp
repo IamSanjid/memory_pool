@@ -117,7 +117,6 @@ int main() {
   } while (0)
 
   int result = 0;
-  GlobalPoolManager::Init();
 
   if (test1() != 0)
     defer_return(1);
@@ -126,7 +125,6 @@ int main() {
 
   printf("\nAll %d Tests passed\n", test_count);
 defer:
-  GlobalPoolManager::DestroyAll();
   if (result != 0) {
     printf("\n%d Tests passed, some other test failed\n", test_count - 1);
   }

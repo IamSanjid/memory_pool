@@ -25,45 +25,29 @@ CPU Caches:
   L1 Instruction 32 KiB (x2)
   L2 Unified 256 KiB (x2)
   L3 Unified 3072 KiB (x1)
-Load Average: 0.25, 0.40, 0.58
-***WARNING*** CPU scaling is enabled, the benchmark real time measurements may be noisy and will incur extra overhead.
-----------------------------------------------------------------------------
-Benchmark                                  Time             CPU   Iterations
-----------------------------------------------------------------------------
-BM_MemoryPool/iterations:100000         5614 ns         5613 ns       100000
-BM_ManualMalloc/iterations:100000       6442 ns         6442 ns       100000
-user@debian:~/projects/c-cpp/mmap-test/benchmarks$ ./build/bench_naive --benchmark_time_unit=ms --benchmark_repetitions=5
-2024-06-22T00:18:44+06:00
-Running ./build/bench_naive
-Run on (4 X 2700 MHz CPU s)
-CPU Caches:
-  L1 Data 32 KiB (x2)
-  L1 Instruction 32 KiB (x2)
-  L2 Unified 256 KiB (x2)
-  L3 Unified 3072 KiB (x1)
-Load Average: 0.70, 0.49, 0.60
+Load Average: 1.12, 0.97, 0.82
 ***WARNING*** CPU scaling is enabled, the benchmark real time measurements may be noisy and will incur extra overhead.
 -----------------------------------------------------------------------------------
 Benchmark                                         Time             CPU   Iterations
 -----------------------------------------------------------------------------------
-BM_MemoryPool/iterations:100000               0.006 ms        0.006 ms       100000
-BM_MemoryPool/iterations:100000               0.006 ms        0.006 ms       100000
-BM_MemoryPool/iterations:100000               0.006 ms        0.006 ms       100000
-BM_MemoryPool/iterations:100000               0.006 ms        0.006 ms       100000
-BM_MemoryPool/iterations:100000               0.006 ms        0.006 ms       100000
-BM_MemoryPool/iterations:100000_mean          0.006 ms        0.006 ms            5
-BM_MemoryPool/iterations:100000_median        0.006 ms        0.006 ms            5
+BM_MemoryPool/iterations:100000               0.005 ms        0.005 ms       100000
+BM_MemoryPool/iterations:100000               0.005 ms        0.005 ms       100000
+BM_MemoryPool/iterations:100000               0.005 ms        0.005 ms       100000
+BM_MemoryPool/iterations:100000               0.005 ms        0.005 ms       100000
+BM_MemoryPool/iterations:100000               0.005 ms        0.005 ms       100000
+BM_MemoryPool/iterations:100000_mean          0.005 ms        0.005 ms            5
+BM_MemoryPool/iterations:100000_median        0.005 ms        0.005 ms            5
 BM_MemoryPool/iterations:100000_stddev        0.000 ms        0.000 ms            5
-BM_MemoryPool/iterations:100000_cv             2.41 %          2.40 %             5
+BM_MemoryPool/iterations:100000_cv             0.40 %          0.39 %             5
 BM_ManualMalloc/iterations:100000             0.007 ms        0.007 ms       100000
 BM_ManualMalloc/iterations:100000             0.007 ms        0.007 ms       100000
-BM_ManualMalloc/iterations:100000             0.006 ms        0.006 ms       100000
-BM_ManualMalloc/iterations:100000             0.006 ms        0.006 ms       100000
-BM_ManualMalloc/iterations:100000             0.006 ms        0.006 ms       100000
-BM_ManualMalloc/iterations:100000_mean        0.006 ms        0.006 ms            5
-BM_ManualMalloc/iterations:100000_median      0.006 ms        0.006 ms            5
+BM_ManualMalloc/iterations:100000             0.007 ms        0.007 ms       100000
+BM_ManualMalloc/iterations:100000             0.007 ms        0.007 ms       100000
+BM_ManualMalloc/iterations:100000             0.007 ms        0.007 ms       100000
+BM_ManualMalloc/iterations:100000_mean        0.007 ms        0.007 ms            5
+BM_ManualMalloc/iterations:100000_median      0.007 ms        0.007 ms            5
 BM_ManualMalloc/iterations:100000_stddev      0.000 ms        0.000 ms            5
-BM_ManualMalloc/iterations:100000_cv           1.13 %          1.07 %             5
+BM_ManualMalloc/iterations:100000_cv           0.53 %          0.52 %             5
 ```
 
 # Perf
@@ -72,22 +56,22 @@ BM_ManualMalloc/iterations:100000_cv           1.13 %          1.07 %           
 ``` 
 Performance counter stats for 'build/perf1':
 
-            582.29 msec task-clock                       #    0.999 CPUs utilized          
-                 5      context-switches                 #    8.587 /sec                   
+            521.01 msec task-clock                       #    0.997 CPUs utilized          
+                51      context-switches                 #   97.887 /sec                   
                  0      cpu-migrations                   #    0.000 /sec                   
-               121      page-faults                      #  207.800 /sec                   
-     1,561,331,602      cycles                           #    2.681 GHz                      (50.00%)
-     3,148,047,346      instructions                     #    2.02  insn per cycle           (62.91%)
-       647,182,981      branches                         #    1.111 G/sec                    (62.91%)
-         1,607,837      branch-misses                    #    0.25% of all branches          (62.91%)
-       951,728,464      L1-dcache-loads                  #    1.634 G/sec                    (60.99%)
-           272,276      L1-dcache-load-misses            #    0.03% of all L1-dcache accesses  (24.73%)
-             2,527      LLC-loads                        #    4.340 K/sec                    (24.73%)
-               110      LLC-load-misses                  #    4.35% of all LL-cache accesses  (37.09%)
+               119      page-faults                      #  228.403 /sec                   
+     1,367,201,877      cycles                           #    2.624 GHz                      (49.65%)
+     2,942,158,569      instructions                     #    2.15  insn per cycle           (62.71%)
+       651,755,292      branches                         #    1.251 G/sec                    (63.21%)
+         1,559,914      branch-misses                    #    0.24% of all branches          (63.21%)
+     1,025,374,411      L1-dcache-loads                  #    1.968 G/sec                    (61.09%)
+           126,230      L1-dcache-load-misses            #    0.01% of all L1-dcache accesses  (24.54%)
+            37,457      LLC-loads                        #   71.893 K/sec                    (24.51%)
+               909      LLC-load-misses                  #    2.43% of all LL-cache accesses  (36.73%)
 
-       0.582922377 seconds time elapsed
+       0.522504616 seconds time elapsed
 
-       0.583210000 seconds user
+       0.521543000 seconds user
        0.000000000 seconds sys
 ```
 

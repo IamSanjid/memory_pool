@@ -2,14 +2,14 @@
 #define __BENCH_COMMON_H_
 
 #include <stdio.h>
-#include <vector>
 #include <string>
+#include <vector>
 
 struct MyObj {
   MyObj(const std::string &name, uint32_t num)
       : objName(name), objNum(num), parent(nullptr) {}
   ~MyObj() {
-    //printf("MyObj %s destroying\n", objName.c_str());
+    // printf("MyObj %s destroying\n", objName.c_str());
     parent = nullptr;
   }
   void setParent(MyObj *p) {
@@ -29,8 +29,8 @@ struct MyObj {
 struct MyObj2 {
   MyObj2(const std::string &name, uint32_t num)
       : auth(name, num), names(1, name) {}
-  ~MyObj2() { 
-    //printf("MyObj2 %s destroying\n", auth.objName.c_str()); 
+  ~MyObj2() {
+    // printf("MyObj2 %s destroying\n", auth.objName.c_str());
   }
   MyObj auth;
   std::vector<std::string> names;

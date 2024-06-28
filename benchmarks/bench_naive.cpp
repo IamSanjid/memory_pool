@@ -1,8 +1,8 @@
 #include <benchmark/benchmark.h>
 #include <stdio.h>
 
-#include "memory_pool.h"
 #include "bench_common.h"
+#include "memory_pool.h"
 
 constexpr size_t kBenchmarkIterations = 100000;
 
@@ -11,7 +11,8 @@ static void MemoryPool(bool recreating = false) {
   for (size_t i = 0; i <= kDefaultBlockCount + 5; i++) {
     std::string name = "Child" + std::to_string(i);
     objs.push_back(pool::New<MyObj>(name, i));
-    //printf("%s: %s\n", (recreating ? "Creating" : "Recreating"), name.c_str());
+    // printf("%s: %s\n", (recreating ? "Creating" : "Recreating"),
+    // name.c_str());
   }
 
   for (auto &ptr : objs)
@@ -28,7 +29,8 @@ static void ManualMalloc(bool recreating = false) {
     std::string name = "Child" + std::to_string(i);
     MyObj *newObj = new MyObj(name, i);
     objs.push_back(newObj);
-    //printf("%s: %s\n", (recreating ? "Creating" : "Recreating"), name.c_str());
+    // printf("%s: %s\n", (recreating ? "Creating" : "Recreating"),
+    // name.c_str());
   }
 
   for (auto &ptr : objs)
@@ -55,8 +57,6 @@ BENCHMARK(BM_MemoryPool)->Iterations(kBenchmarkIterations);
 BENCHMARK(BM_ManualMalloc)->Iterations(kBenchmarkIterations);
 
 int main(int argc, char **argv) {
-  GlobalPoolManager::Init();
-
   char arg0_default[] = "benchmark";
   char *args_default = arg0_default;
   if (!argv) {
@@ -69,6 +69,5 @@ int main(int argc, char **argv) {
   benchmark::RunSpecifiedBenchmarks();
   benchmark::Shutdown();
 
-  GlobalPoolManager::DestroyAll();
   return 0;
 }

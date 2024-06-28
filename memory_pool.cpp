@@ -1,7 +1,7 @@
+#include "memory_pool.h"
+
 #include <cassert>
 #include <cstring>
-
-#include "memory_pool.h"
 
 static inline bool IsAligned(size_t val, size_t alignment) {
   size_t lowBits = val & (alignment - 1);
@@ -51,15 +51,12 @@ void FixedPool::CreatePool(size_t size_of_each_block, uint32_t num_of_blocks) {
   size_of_each_block_ = alignedSizeOfEachBlock;
 
   mem_start_ = new uchar[size_of_each_block_ * num_of_blocks_];
-  used_blocks_ = new bool[num_of_blocks_];
   ReclaimAll();
 }
 
 void FixedPool::DestroyPool() {
   delete[] mem_start_;
-  delete[] used_blocks_;
   mem_start_ = nullptr;
-  used_blocks_ = nullptr;
 }
 
 void *FixedPool::ForcedAllocate() {
@@ -70,11 +67,15 @@ void *FixedPool::ForcedAllocate() {
     num_initialized_++;
   }
   void *ret = ToData(next_);
-  used_blocks_[IndexFromAddr(next_)] = true;
 
   --num_free_blocks_;
   if (num_free_blocks_ != 0) {
-    next_ = AddrFromIndex(((Header *)next_)->next_block_idx);
+    uint32_t &next_idx = ((Header *)next_)->next_block_idx;
+
+    next_ = AddrFromIndex(next_idx);
+
+    // Marking as used..
+    next_idx = num_of_blocks_ + 1;
   } else {
     next_ = nullptr;
   }
@@ -103,7 +104,6 @@ void FixedPool::ForcedDeAllocate(void *p) {
     h->next_block_idx = num_of_blocks_;
     next_ = (uchar *)h;
   }
-  used_blocks_[IndexFromAddr(next_)] = false;
   ++num_free_blocks_;
 }
 
@@ -120,7 +120,6 @@ inline void FixedPool::ReclaimAll() {
   num_free_blocks_ = num_of_blocks_;
   std::memset(mem_start_, 0xf,
               size_of_each_block_ * num_free_blocks_ * sizeof(uchar));
-  std::memset(used_blocks_, 0x0, num_free_blocks_ * sizeof(bool));
 
   next_ = (uchar *)AddrFromIndex(0);
 }
