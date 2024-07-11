@@ -21,7 +21,7 @@ static void MemoryPool(bool recreating = false) {
 }
 
 int main() {
-  std::ignore = PoolManager::Get<MyObj>();
+  std::ignore = PoolManager<MyObj>::Get();
   for (size_t i = 0; i < kBenchmarkIterations; i++) {
     MemoryPool();
   }

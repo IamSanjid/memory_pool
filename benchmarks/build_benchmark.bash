@@ -19,19 +19,19 @@ build_google_benchmark() {
         fi
     fi
 
-    g++ -std=c++20 -Wall -Werror -O3 -DNDEBUG bench_naive.cpp ../memory_pool.cpp -I../ \
+    g++ -std=c++20 -Wall -Werror -O3 -DNDEBUG bench_naive.cpp ../fixed_pool.cpp -I../ \
         -isystem benchmark/include -Lbenchmark/build/src -lbenchmark -lpthread -o      \
         build/bench_naive
 }
 
 build_google_benchmark
 
-g++ -std=c++20 -Wall -Werror -O3 -DNDEBUG -pg perf1.cpp ../memory_pool.cpp -I../      \
+g++ -std=c++20 -Wall -Werror -O3 -DNDEBUG -pg perf1.cpp ../fixed_pool.cpp -I../      \
     -o build/perf1_pg
-g++ -std=c++20 -Wall -Werror -O3 -g -DNDEBUG perf1.cpp ../memory_pool.cpp -I../       \
+g++ -std=c++20 -Wall -Werror -O3 -g -DNDEBUG perf1.cpp ../fixed_pool.cpp -I../       \
     -o build/perf1
 
-g++ -std=c++20 -Wall -Werror -O3 -DNDEBUG -pg perf2.cpp ../memory_pool.cpp -I../      \
+g++ -std=c++20 -Wall -Werror -O3 -DNDEBUG -pg perf2.cpp ../fixed_pool.cpp -I../      \
     -o build/perf2_pg
-g++ -std=c++20 -Wall -Werror -O3 -g -DNDEBUG perf2.cpp ../memory_pool.cpp -I../       \
+g++ -std=c++20 -Wall -Werror -O3 -g -DNDEBUG perf2.cpp ../fixed_pool.cpp -I../       \
     -o build/perf2

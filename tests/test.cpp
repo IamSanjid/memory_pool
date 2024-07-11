@@ -74,7 +74,7 @@ int test_fixed_pool() {
 }
 
 void create_my_objs(MyObj **ret_parent, MyObj **ret_child) {
-  auto &manager = PoolManager::Get<MyObj>();
+  auto &manager = PoolManager<MyObj>::Get();
   MyObj *parent = manager.New("Parent", 2);
   MyObj *child = manager.New("Child", 3);
 
@@ -88,7 +88,7 @@ void create_my_objs(MyObj **ret_parent, MyObj **ret_child) {
 int test_pool_manager() {
   std::cout << "\nTest" << ++test_count
             << ": Using PoolManager to allocate two `MyObj`\n";
-  auto &manager = PoolManager::Get<MyObj>();
+  auto &manager = PoolManager<MyObj>::Get();
   MyObj *parent, *child;
   create_my_objs(&parent, &child);
 
@@ -99,8 +99,8 @@ int test_pool_manager() {
 }
 
 void create_my_objs2(MyObj **ret_parent, MyObj2 **ret_child) {
-  auto &manager1 = PoolManager::Get<MyObj>();
-  auto &manager2 = PoolManager::Get<MyObj2>();
+  auto &manager1 = PoolManager<MyObj>::Get();
+  auto &manager2 = PoolManager<MyObj2>::Get();
   MyObj *parent = manager1.New("Parent", 4);
   MyObj2 *child = manager2.New("Child", 5);
 
@@ -121,8 +121,8 @@ int test_pool_manager2() {
   std::cout << "\nTest" << ++test_count
             << ": Using PoolManager to allocate one `MyObj` and one "
                "`MyObj2`\n";
-  auto &manager1 = PoolManager::Get<MyObj>();
-  auto &manager2 = PoolManager::Get<MyObj2>();
+  auto &manager1 = PoolManager<MyObj>::Get();
+  auto &manager2 = PoolManager<MyObj2>::Get();
   MyObj *parent;
   MyObj2 *child;
   create_my_objs2(&parent, &child);
@@ -137,8 +137,8 @@ int test_pool_manager3() {
   std::cout << "\nTest" << ++test_count
             << ": Using PoolManager to allocate one `MyObj` and one `MyObj2`\n"
                "Deleting both of those manually and recreating them again.\n";
-  auto &manager1 = PoolManager::Get<MyObj>();
-  auto &manager2 = PoolManager::Get<MyObj2>();
+  auto &manager1 = PoolManager<MyObj>::Get();
+  auto &manager2 = PoolManager<MyObj2>::Get();
   MyObj *parent;
   MyObj2 *child;
   create_my_objs2(&parent, &child);
@@ -160,7 +160,7 @@ int test_pool_manager4() {
   std::thread t1(
       +[](size_t id) {
         std::cout << "Thread: " << id << "\n";
-        auto &manager2 = PoolManager::Get<MyObj2>();
+        auto &manager2 = PoolManager<MyObj2>::Get();
         MyObj2 *child = manager2.New("Child", 7);
 
         child->addName("Child1");
@@ -173,7 +173,7 @@ int test_pool_manager4() {
   std::thread t2(
       +[](size_t id) {
         std::cout << "Thread: " << id << "\n";
-        auto &manager1 = PoolManager::Get<MyObj>();
+        auto &manager1 = PoolManager<MyObj>::Get();
         MyObj *parent = manager1.New("Parent", 6);
         std::cout << parent->objNum << ": " << parent->objName << "\n";
       },
@@ -187,10 +187,10 @@ int test_pool_manager4() {
 int test_pool_manager5() {
   std::cout << "\nTest" << ++test_count << ": Creating primitive types\n";
 
-  int *int_ptr = PoolManager::Get<int>().New(12);
+  int *int_ptr = PoolManager<int>::Get().New(12);
   printf("int_ptr: %p, *int_ptr: %d\n", int_ptr, *int_ptr);
 
-  char *char_ptr = PoolManager::Get<char>().New('E');
+  char *char_ptr = PoolManager<char>::Get().New('E');
   printf("char_ptr: %p, *char_ptr: %c\n", char_ptr, *char_ptr);
 
   return 0;
@@ -200,7 +200,7 @@ int test_pool_manager6() {
   std::cout << "\nTest" << ++test_count
             << ": Exhausting first `FixedPool` of the `PoolManager<MyObj>`\n";
 
-  auto &manager = PoolManager::Get<MyObj>();
+  auto &manager = PoolManager<MyObj>::Get();
   std::vector<MyObj *> objs;
   // `FixedPool` is created with 64 blocks by default
   for (size_t i = 0; i <= kDefaultBlockCount + 5; i++) {
@@ -233,14 +233,14 @@ int test_pool_manager7() {
 
   std::cout << "MainThread: " << std::this_thread::get_id() << "\n";
 
-  auto &main_manager = PoolManager::Get<ThObj>();
+  auto &main_manager = PoolManager<ThObj>::Get();
   ThObj *obj = main_manager.New("FromMain", 8);
 
   std::thread t1(
       +[](ThObj *moved_obj) {
         std::cout << "Thread: " << std::this_thread::get_id() << "\n";
 
-        auto &second_manager = PoolManager::Get<ThObj>();
+        auto &second_manager = PoolManager<ThObj>::Get();
         second_manager.Delete(moved_obj);
       },
       obj);
