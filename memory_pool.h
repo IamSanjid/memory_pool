@@ -1,7 +1,6 @@
 #ifndef __MEMORY_POOL_H__
 #define __MEMORY_POOL_H__
 
-#include <forward_list>
 #include <vector>
 
 #include "concurrentqueue.h" // lock-free thread-safe queue
@@ -32,11 +31,13 @@ private:
   friend class PoolManager<T>;
   struct InnerFixedPool {
     size_t id;
+    size_t next_id;
     uintptr_t owner_identifier;
     FixedPool *pool_instance;
 
-    InnerFixedPool(size_t t_id, uintptr_t t_owner_identifier, size_t blocks)
-        : id(t_id), owner_identifier(t_owner_identifier),
+    InnerFixedPool(size_t t_id, size_t t_next_id, uintptr_t t_owner_identifier,
+                   size_t blocks)
+        : id(t_id), next_id(t_next_id), owner_identifier(t_owner_identifier),
           pool_instance(FixedPool::Create((uintptr_t)this, sizeof(T), blocks)) {
     }
     ~InnerFixedPool() { delete pool_instance; }
@@ -44,39 +45,48 @@ private:
 
   // Represents the `Pool<T>`'s moveable state.
   struct PoolState {
-    std::vector<InnerFixedPool *> pools;
-    std::forward_list<size_t> free_pools;
-
     // Lock-free thread-safe queue
     moodycamel::ConcurrentQueue<T *> dealloc_req_queue;
     moodycamel::ConsumerToken consumer_token;
 
-    PoolState() : consumer_token(dealloc_req_queue) {}
+    InnerFixedPool *next_pool;
+    std::vector<InnerFixedPool *> pools;
+    size_t num_free_pools;
 
-    inline size_t AddNewPool() {
+    PoolState()
+        : consumer_token(dealloc_req_queue),
+          next_pool(
+              new InnerFixedPool(0, 1, (uintptr_t)this, kDefaultBlockCount)),
+          pools({next_pool}), num_free_pools(1) {}
+
+    inline InnerFixedPool *AddNewPool() {
       size_t pool_id = pools.size();
 
-      InnerFixedPool *inner_pool =
-          new InnerFixedPool(pool_id, (uintptr_t)this, kDefaultBlockCount);
-
+      InnerFixedPool *inner_pool = new InnerFixedPool(
+          pool_id, pool_id + 1, (uintptr_t)this, kDefaultBlockCount);
       pools.push_back(inner_pool);
-      free_pools.push_front(pool_id);
-      return pool_id;
+
+      next_pool = inner_pool;
+      num_free_pools++;
+
+      return next_pool;
     }
 
     // Must be called before `FixedPool::ForcedDeAllocate` gets called. Since
     // we're kind of checking if it is already in the "free pools" list.
-    inline void SetNextFreePool(size_t pool_id) {
-      if (pools[pool_id]->pool_instance->IsAnyBlockAvailable())
+    inline void SetNextFreePool(InnerFixedPool *pool) {
+      if (pool->pool_instance->IsAnyBlockAvailable())
         return;
-
-      free_pools.push_front(pool_id);
+      num_free_pools++;
+      pool->next_id = next_pool->id;
+      next_pool = pool;
     }
 
     inline void AddDeallocRequest(T *data) { dealloc_req_queue.enqueue(data); }
   };
 
-  PoolState *state_;
+private:
+  PoolState *state_ = nullptr;
 
 public:
   // `thread_local`'s language implementation guarantees that the destructor
@@ -125,7 +135,7 @@ public:
       pool_owner_state->AddDeallocRequest(instance);
       return;
     }
-    state_->SetNextFreePool(inner_pool->id);
+    state_->SetNextFreePool(inner_pool);
 
     instance->~T();
     inner_pool->pool_instance->ForcedDeAllocate((void *)instance);
@@ -134,15 +144,14 @@ public:
   // Reclaims all the allocated space for reuse.
   // Calls all the allocated object's destructor.
   void Clear() {
-    std::vector<InnerFixedPool *> &pools = *state_->pools;
-    std::forward_list<size_t> &free_pools = *state_->free_pools;
+    std::vector<InnerFixedPool *> &pools = state_->pools;
 
     ConsumeDeallocRequests();
-    for (size_t i = pools.size() - 1; i >= 0; i--) {
+    for (size_t i = 0, n = pools.size(); i < n; i++) {
       auto &pool = pools[i];
-      if (!pool->pool_instance->IsAnyBlockAvailable()) {
-        free_pools.push_front(i);
-      }
+
+      pool->id = i;
+      pool->next_id = i + 1;
 
       DeleteObjectsFromPool(pool->pool_instance);
     }
@@ -177,32 +186,29 @@ private:
   // Returns the active pool which has free block(s) or adds/creates a new pool
   // and returns it.
   inline FixedPool *GetActiveFixedPool() {
-    std::vector<InnerFixedPool *> &pools = state_->pools;
-    std::forward_list<size_t> &free_pools = state_->free_pools;
+    InnerFixedPool *active_pool = state_->next_pool;
+    FixedPool *active_fixed_pool = active_pool->pool_instance;
+    if (active_fixed_pool->IsAnyBlockAvailable()) {
+      return active_fixed_pool;
+    }
 
-    size_t current_pool_id = free_pools.front();
-    FixedPool *active_pool = pools[current_pool_id]->pool_instance;
-    if (active_pool->IsAnyBlockAvailable()) {
-      return active_pool;
+    // We should do synchronization overhead stuff only when we really need
+    // it.
+    ConsumeDeallocRequests();
+    if (active_fixed_pool->IsAnyBlockAvailable()) {
+      return active_fixed_pool;
+    }
+
+    state_->num_free_pools--;
+    if (state_->num_free_pools > 0) {
+      InnerFixedPool *next_pool = state_->pools[active_pool->next_id];
+      state_->next_pool = next_pool;
+      active_pool = next_pool;
     } else {
-      // We should do synchronization overhead stuff only when we really need
-      // it.
-      ConsumeDeallocRequests();
-      if (active_pool->IsAnyBlockAvailable()) {
-        return active_pool;
-      }
-      free_pools.pop_front();
+      active_pool = state_->AddNewPool();
     }
 
-    if (!free_pools.empty()) {
-      current_pool_id = free_pools.front();
-
-      active_pool = pools[current_pool_id]->pool_instance;
-      return active_pool;
-    }
-
-    current_pool_id = state_->AddNewPool();
-    return pools[current_pool_id]->pool_instance;
+    return active_pool->pool_instance;
   }
 
   inline void ConsumeDeallocRequests() {
@@ -218,7 +224,7 @@ private:
                 ->pool_identifier;
         FixedPool *pool = inner_pool->pool_instance;
 
-        state_->SetNextFreePool(inner_pool->id);
+        state_->SetNextFreePool(inner_pool);
         // We're not calling the destructor, we've already called it. We're just
         // now reclaiming the reserved space as we need it.
         //
@@ -236,7 +242,7 @@ private:
   using PoolState = Pool<T>::PoolState;
 
   // Lock-free thread-safe queue
-  moodycamel::ConcurrentQueue<PoolState *> free_pools_;
+  moodycamel::ConcurrentQueue<PoolState *> free_pools_{};
 
 public:
   PoolManager() = default;
@@ -281,9 +287,10 @@ template <typename T> void Pool<T>::Init() {
   PoolState *state = PoolManager<T>::Instance().GetFreePool();
   if (state == nullptr)
     state = new PoolState();
+  else if (state->num_free_pools == 0)
+    (void)state->AddNewPool();
+
   state_ = state;
-  if (state_->free_pools.empty())
-    state_->AddNewPool();
 }
 
 template <typename T> void Pool<T>::Destroy() {
